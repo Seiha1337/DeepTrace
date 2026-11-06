@@ -2,6 +2,7 @@
 
 import base64
 import json
+import math
 import os
 import subprocess
 import sys
@@ -56,6 +57,8 @@ def parse_payload(output: str, collector_id: str) -> list[dict]:
             raise ValueError("Champs de réponse inattendus")
         if any(not isinstance(v, (str, int, float, bool, type(None))) for v in row.values()):
             raise ValueError("Valeur de réponse invalide")
+        if any(isinstance(v, float) and not math.isfinite(v) for v in row.values()):
+            raise ValueError("Nombre non fini interdit")
     return rows
 
 

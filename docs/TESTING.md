@@ -35,6 +35,11 @@ Ne pas interpréter un succès de collecte comme une validation de la santé du 
 - Un défaut de nettoyage des fenêtres de test causait une erreur à la sortie du processus ;
   la destruction explicite des widgets a corrigé le défaut observé.
 - Les totaux définitifs des tests, du lint, du build et de CI figurent dans `STATUS.md`.
+- Paquet installé hors mode éditable dans un environnement neuf avec seulement Essentials :
+  interface ouverte puis fermée normalement, import confirmé depuis `site-packages`.
+- La CI GitHub est configurée mais non exécutée : blocage de facturation/plafond du compte,
+  confirmé par l'annotation de l'exécution initiale. Les validations locales ne sont pas
+  présentées comme une réussite de CI distante.
 
 ## Non qualifié
 
