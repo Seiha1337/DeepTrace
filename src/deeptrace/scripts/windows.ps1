@@ -1,0 +1,1 @@
+Get-CimInstance Win32_OperatingSystem | Select-Object Caption,Version,BuildNumber,OSArchitecture,TotalVisibleMemorySize,FreePhysicalMemory,@{n='LastBootUpTime';e={$_.LastBootUpTime.ToUniversalTime().ToString('o')}}

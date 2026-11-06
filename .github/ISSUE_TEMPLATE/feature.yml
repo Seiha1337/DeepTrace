@@ -1,0 +1,13 @@
+name: Proposition
+description: Proposer un diagnostic ou une amélioration vérifiable
+body:
+  - type: textarea
+    id: need
+    attributes:
+      label: Problème concret et comportement souhaité
+    validations:
+      required: true
+  - type: textarea
+    id: proof
+    attributes:
+      label: Sources, preuves, limites et risques à considérer

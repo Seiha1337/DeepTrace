@@ -1,0 +1,38 @@
+# Développement
+
+Installer comme indiqué dans le README. Pour une application sans outils de développement,
+`pip install .` installe seulement Qt Essentials et ses dépendances. Le fichier verrouillé
+sert à reproduire les contrôles du dépôt. Python stable recommandé ; le poste initial
+dispose de Python 3.11.0rc2, ce qui reste une limite de qualification.
+
+## Branches et versions
+
+Branche principale `master`. Avant chaque travail : `git fetch origin`, vérifier l'état
+local, partir du `origin/master` le plus récent sans écraser les modifications existantes.
+Branches `dev/...`, `feat/...` ou `fix/...`, PR avec tests réussis. Pas de force-push sur master.
+SemVer : `0.x` pour les versions préalables à la stabilité, changelog à chaque livraison.
+Une version modifiée de collecteur requiert une revue de sa portée et des données collectées.
+
+## Ajouter un collecteur
+
+1. Décrire son contrat et ses limitations dans `catalog.py`.
+2. Ajouter un script fixe en lecture seule avec projections de champs minimales.
+3. Définir les données mesurées et les indisponibilités sans remplacer les absences par zéro.
+4. Ajouter des fixtures synthétiques, tests d'échec, de droits et de délai pertinents.
+5. Ajouter une règle uniquement si elle dispose d'une justification et de preuves.
+6. Vérifier le filtrage des exports et mettre à jour la documentation.
+
+Ne pas utiliser `Win32_Product` pour inventorier les logiciels (effets Windows Installer).
+Ne pas accepter une commande libre, un chemin de script ou une réparation générée.
+Ne jamais ajouter de test qui répare Windows ou modifie les protections du poste.
+
+## Packaging
+
+`python -m build --no-isolation` produit wheel et archive source. Les scripts `.ps1`
+font partie des données du paquet. Vérifier le paquet dans un environnement neuf,
+pas seulement l'installation éditable. Un exécutable autonome, sa signature, les mises
+à jour et l'installateur sont des travaux futurs, pas des fonctionnalités livrées.
+
+`python tools/capture_ui.py` capture l'écran initial réel sans exécuter de diagnostic.
+`python tools/check_repository.py` vérifie les fichiers suivis avant publication.
+Les résultats de qualification restent dans `docs/TESTING.md` et le résumé `docs/STATUS.md`.

@@ -1,0 +1,22 @@
+name: Anomalie
+description: Signaler un défaut avec des observations minimales et non sensibles
+body:
+  - type: markdown
+    attributes:
+      value: Ne joignez aucun secret, dump, base SQLite, sauvegarde ou journal privé.
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Étapes de reproduction et résultat attendu
+    validations:
+      required: true
+  - type: textarea
+    id: observation
+    attributes:
+      label: Résultat observé, identifiant de contrôle et code de retour
+    validations:
+      required: true
+  - type: input
+    id: versions
+    attributes:
+      label: Versions DeepTrace, Windows et Python

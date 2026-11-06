@@ -1,0 +1,1 @@
+Get-MpComputerStatus | Select-Object AMServiceEnabled,AntivirusEnabled,RealTimeProtectionEnabled,@{n='AntivirusSignatureLastUpdated';e={if ($_.AntivirusSignatureLastUpdated) {$_.AntivirusSignatureLastUpdated.ToUniversalTime().ToString('o')}}}

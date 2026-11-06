@@ -1,0 +1,1 @@
+Get-PhysicalDisk | Select-Object @{n='MediaType';e={[string]$_.MediaType}},@{n='BusType';e={[string]$_.BusType}},@{n='HealthStatus';e={[string]$_.HealthStatus}},@{n='OperationalStatus';e={[string]$_.OperationalStatus}},Size
