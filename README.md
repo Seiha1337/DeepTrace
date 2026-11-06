@@ -11,6 +11,10 @@ Les réparations sont simulées. Les sauvegardes et restaurations sont document�
 ne sont pas encore exécutables. Aucun composant d'intelligence artificielle ni accès
 à une API externe n'est nécessaire au fonctionnement.
 
+État de qualification : 37 tests locaux réussis et 12 collecteurs vérifiés sur Windows.
+La CI distante est bloquée par la facturation/plafond GitHub ; les protections natives
+du dépôt privé sont indisponibles avec l'offre actuelle. Voir [le bilan](docs/STATUS.md).
+
 ![Interface réelle de DeepTrace au démarrage](docs/assets/overview.png)
 
 Capture de l'application réelle, sans analyse démarrée et sans données personnelles.

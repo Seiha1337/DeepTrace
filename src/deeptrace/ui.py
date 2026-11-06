@@ -4,7 +4,7 @@ import sqlite3
 from pathlib import Path
 from threading import Event
 
-from PySide6.QtCore import Qt, QThread, Signal
+from PySide6.QtCore import QCoreApplication, QEvent, Qt, QThread, Signal
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
@@ -700,4 +700,7 @@ def launch(data_dir: Path):
     app.setApplicationName("DeepTrace")
     window = MainWindow(data_dir)
     window.show()
-    return app.exec()
+    code = app.exec()
+    window.deleteLater()
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+    return code
