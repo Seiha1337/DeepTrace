@@ -30,8 +30,18 @@ Ne jamais ajouter de test qui répare Windows ou modifie les protections du post
 
 `python -m build --no-isolation` produit wheel et archive source. Les scripts `.ps1`
 font partie des données du paquet. Vérifier le paquet dans un environnement neuf,
-pas seulement l'installation éditable. Un exécutable autonome, sa signature, les mises
-à jour et l'installateur sont des travaux futurs, pas des fonctionnalités livrées.
+pas seulement l'installation éditable. L'exécutable portable et les mises à jour via
+Releases sont implémentés en V0.1.1. Signature Authenticode et installateur restent à développer.
+
+Pour construire `DeepTrace.exe` avec un Python Windows x64 **stable** :
+
+```powershell
+python -m pip install -r requirements-windows-build.lock
+./tools/build_windows.ps1 -Python (Get-Command python).Source
+```
+
+Le script produit aussi `SHA256SUMS.txt`. Un tag `vX.Y.Z` correspondant à la version
+du code déclenche les validations Windows/Linux, la construction et la Release GitHub.
 
 `python tools/capture_ui.py` capture l'écran initial réel sans exécuter de diagnostic.
 `python tools/check_repository.py` vérifie les fichiers suivis avant publication.

@@ -6,14 +6,31 @@ DeepTrace est une application desktop Windows de diagnostic local. Elle rassembl
 observations vérifiables, les explique en français et distingue les faits des hypothèses.
 Elle ne promet pas de gain de performances et ne produit aucun score de santé artificiel.
 
-**Version 0.1.0 — première version de développement, exclusivement en lecture seule.**
+**Version 0.1.1 — exécutable portable Windows, diagnostics en lecture seule.**
 Les réparations sont simulées. Les sauvegardes et restaurations sont documentées, mais
 ne sont pas encore exécutables. Aucun composant d'intelligence artificielle ni accès
 à une API externe n'est nécessaire au fonctionnement.
 
-État de qualification : 37 tests locaux réussis et 12 collecteurs vérifiés sur Windows.
-La CI distante est bloquée par la facturation/plafond GitHub ; les protections natives
-du dépôt privé sont indisponibles avec l'offre actuelle. Voir [le bilan](docs/STATUS.md).
+Télécharger **[DeepTrace.exe dans la dernière Release](https://github.com/Seiha1337/DeepTrace/releases/latest)**,
+puis double-cliquer : aucun Python à installer, aucune élévation administrateur.
+Le binaire est portable, x64, non signé Authenticode. Les données restent dans votre profil
+Windows. Voir [le bilan de validation](docs/STATUS.md) pour les contrôles effectivement réalisés.
+
+## Mises à jour
+
+Au premier lancement, DeepTrace propose de vérifier les versions GitHub au démarrage et
+d'installer automatiquement les nouvelles versions stables. Après accord, cette opération
+se déroule en arrière-plan, attend la fin des analyses puis redémarre l'application.
+Les options restent désactivables dans Paramètres ; le diagnostic fonctionne hors connexion.
+
+Seuls les fichiers `DeepTrace.exe` des Releases officielles sont acceptés. Taille, emplacement
+HTTPS et SHA-256 sont vérifiés. L'ancienne version est conservée à côté de l'exécutable,
+et restaurée si le remplacement ou le lancement échoue. Un crash ultérieur de la nouvelle
+version n'est pas détecté automatiquement. La mise à jour nécessite un dossier d'exécutable
+accessible en écriture, sans demander de droits administrateur.
+
+Les commits ordinaires ne sont pas distribués directement : une version `vX.Y.Z` déclenche
+les tests, la construction Windows puis la publication du binaire dans une Release.
 
 ![Interface réelle de DeepTrace au démarrage](docs/assets/overview.png)
 
@@ -61,7 +78,8 @@ python -m venv .venv
 Le paquet utilise **PySide6-Essentials**, sans Qt WebEngine, serveur ou dépendance IA.
 Une installation plus souple est possible avec `pip install -e ".[dev]"` ; le fichier
 verrouillé correspond à l'environnement de validation décrit dans `docs/TESTING.md`.
-Un installateur Windows autonome signé reste à développer.
+La distribution portable `DeepTrace.exe` embarque Python stable et Qt Essentials.
+Un installateur Windows signé reste à développer.
 
 ## Utilisation
 
@@ -127,7 +145,9 @@ Les restaurations futures exigeront une confirmation explicite.
 
 ## Confidentialité et sécurité
 
-- Aucun trafic sortant de l'application, aucune télémétrie, aucun secret collecté.
+- Aucune télémétrie et aucun secret collecté. Après accord, les mises à jour contactent
+  GitHub en HTTPS ; aucun diagnostic n'est envoyé. GitHub reçoit les métadonnées ordinaires
+  d'une requête réseau (dont adresse IP et version applicative dans le User-Agent).
 - Pas de mots de passe, tokens, cookies, numéros de série, IP/MAC, arguments de processus
   ou messages libres d'événements dans les collecteurs.
 - Les noms de composants, processus, logiciels et services restent dans l'historique local.
@@ -196,4 +216,6 @@ contrôlées ; V0.5 : surveillance ; V1.0 : stabilisation et installation Window
 L'historique simple est déjà livré en V0.1 pour assurer la traçabilité initiale.
 Pas d'intégration IA avant la consolidation des fondations.
 
-Projet privé. Aucune licence de redistribution n'est accordée à ce stade.
+Le code est public ; aucune licence de redistribution du code propre à DeepTrace n'est
+accordée à ce stade. Les composants embarqués conservent leurs licences respectives :
+voir [les notices tierces](docs/THIRD_PARTY.md).

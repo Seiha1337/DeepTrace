@@ -13,7 +13,9 @@ class ScanEngine:
     def __init__(self, runner=None):
         self.runner = runner or WindowsRunner()
 
-    def scan(self, level="rapide", symptom="", timeout=25, cancel=None, progress=None) -> Scan:
+    def scan(
+        self, level="rapide", symptom="", timeout=25, cancel=None, progress=None, started=None
+    ) -> Scan:
         if not isinstance(timeout, int) or not 1 <= timeout <= 120:
             raise ValueError("Délai invalide (1–120 secondes)")
         specs = select_collectors(level, symptom)
@@ -23,6 +25,8 @@ class ScanEngine:
             if cancel.is_set():
                 result = CollectorResult(spec.id, Status.CANCELLED, error="Analyse interrompue.")
             else:
+                if started:
+                    started(index + 1, len(specs), spec.id)
                 try:
                     result = self.runner.collect(spec.id, min(timeout, spec.timeout))
                     result.findings = interpret(result)

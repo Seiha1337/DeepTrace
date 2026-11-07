@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "deeptrace"
-version = "0.1.0"
+version = "0.1.1"
 description = "Diagnostics Windows locaux, explicables et en lecture seule"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -20,7 +20,7 @@ deeptrace = "deeptrace.__main__:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-deeptrace = ["scripts/*.ps1"]
+deeptrace = ["scripts/*.ps1", "assets/*.ico"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]

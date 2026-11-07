@@ -1,10 +1,12 @@
 import html
 import json
 import sqlite3
+import sys
 from pathlib import Path
 from threading import Event
 
-from PySide6.QtCore import QCoreApplication, QEvent, Qt, QThread, Signal
+from PySide6.QtCore import QCoreApplication, QEvent, Qt, QThread, QTimer, Signal
+from PySide6.QtGui import QColor, QIcon
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
@@ -15,12 +17,14 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QLabel,
+    QLineEdit,
     QListWidget,
     QListWidgetItem,
     QMainWindow,
     QMessageBox,
     QProgressBar,
     QPushButton,
+    QScrollArea,
     QSpinBox,
     QSplitter,
     QStackedWidget,
@@ -31,6 +35,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from . import __version__
 from .catalog import BY_ID, CATALOG, SYMPTOMS, select_collectors
 from .engine import ScanEngine
 from .interventions import OPERATIONS, PROTECTIONS, simulate
@@ -59,8 +64,9 @@ QListWidget::item { padding: 10px 12px; border-radius: 6px; }
 QListWidget::item:selected { background: #25454f; color: #82f2dc; }
 QTreeWidget, QTextBrowser { background: #141e2c; border: 1px solid #304158;
  border-radius: 8px; padding: 8px; selection-background-color: #25454f; }
+QTreeWidget::item:alternate { background: #192435; }
 QHeaderView::section { background: #223249; padding: 8px; border: 0; }
-QComboBox, QSpinBox { padding: 7px; background: #1b293b; border: 1px solid #425a75;
+QComboBox, QSpinBox, QLineEdit { padding: 7px; background: #1b293b; border: 1px solid #425a75;
  border-radius: 5px; }
 QProgressBar { background: #1b293b; border: 0; border-radius: 5px; text-align: center; }
 QProgressBar::chunk { background: #319d8a; border-radius: 5px; }
@@ -145,6 +151,7 @@ def browser() -> QTextBrowser:
 
 
 class ScanThread(QThread):
+    stage_started = Signal(int, int, str)
     progress = Signal(int, int, object)
     completed = Signal(object)
     failed = Signal(str)
@@ -157,25 +164,72 @@ class ScanThread(QThread):
     def run(self):
         try:
             scan = self.engine.scan(
-                self.level, self.symptom, self.timeout, self.cancel, self.progress.emit
+                self.level,
+                self.symptom,
+                self.timeout,
+                self.cancel,
+                self.progress.emit,
+                started=self.stage_started.emit,
             )
             self.completed.emit(scan)
         except Exception:
             self.failed.emit("L'analyse a échoué ; aucun changement système effectué.")
 
 
+class UpdateThread(QThread):
+    checked = Signal(object)
+    ready = Signal(object, object)
+    download_progress = Signal(int, int)
+    failed = Signal(str)
+
+    def __init__(self, directory, download=False, parent=None):
+        super().__init__(parent)
+        self.directory = directory
+        self.download = download
+        self.cancel = Event()
+
+    def run(self):
+        from .updates import UpdateError, check_latest, download_release
+
+        try:
+            release = check_latest()
+            if self.cancel.is_set():
+                return
+            self.checked.emit(release)
+            if release and self.download:
+                staged = download_release(
+                    release, self.directory, self.download_progress.emit, self.cancel
+                )
+                if not self.cancel.is_set():
+                    self.ready.emit(staged, release)
+        except UpdateError as exc:
+            self.failed.emit(str(exc))
+        except Exception:
+            self.failed.emit("Vérification indisponible ; la version actuelle reste utilisable.")
+
+
 class MainWindow(QMainWindow):
     def __init__(self, data_dir: Path, engine=None):
         super().__init__()
         self.setWindowTitle("DeepTrace — Diagnostic Windows local")
+        icon = Path(__file__).parent / "assets" / "deeptrace.ico"
+        if icon.exists():
+            self.setWindowIcon(QIcon(str(icon)))
         self.resize(1320, 880)
         self.setMinimumSize(1000, 680)
         self.setStyleSheet(STYLE)
         self.engine = engine or ScanEngine()
         self.history = History(data_dir / "history.sqlite3")
+        self.data_dir = data_dir
+        self.preferences = self.history.get_settings()
         self.scan: Scan | None = None
         self.worker = None
+        self.close_when_finished = False
+        self.update_worker = None
+        self.pending_update = None
+        self.update_install_requested = False
         self.domain_views = {}
+        self.domain_searches = {}
         root = QWidget()
         self.setCentralWidget(root)
         layout = QHBoxLayout(root)
@@ -190,7 +244,7 @@ class MainWindow(QMainWindow):
         left.addWidget(label("Comprendre. Expliquer. Vérifier.", "muted"))
         left.addSpacing(14)
         left.addWidget(self.navigation, 1)
-        left.addWidget(label("V0.1 • local • lecture seule", "muted"))
+        left.addWidget(label(f"V{__version__} • local • lecture seule", "muted"))
         layout.addLayout(left)
         self.pages = QStackedWidget()
         layout.addWidget(self.pages, 1)
@@ -200,6 +254,12 @@ class MainWindow(QMainWindow):
             specs = [s for s in CATALOG if s.domain == domain]
             box.addWidget(label("\n".join(f"{s.title} : {s.purpose}" for s in specs), "muted"))
             view = browser()
+            search = QLineEdit()
+            search.setPlaceholderText("Rechercher dans les observations…")
+            search.setAccessibleName(f"Rechercher dans {domain}")
+            search.textChanged.connect(lambda text, target=view: self.find_in_view(target, text))
+            self.domain_searches[domain] = search
+            box.addWidget(search)
             self.domain_views[domain] = view
             box.addWidget(view, 1)
         self.build_repairs()
@@ -208,7 +268,45 @@ class MainWindow(QMainWindow):
         self.build_settings()
         self.navigation.currentRowChanged.connect(self.pages.setCurrentIndex)
         self.navigation.setCurrentRow(0)
+        for signal in (
+            self.expert.toggled,
+            self.remember.toggled,
+            self.timeout.valueChanged,
+            self.level.currentTextChanged,
+            self.symptom.currentTextChanged,
+            self.check_updates.toggled,
+            self.auto_updates.toggled,
+        ):
+            signal.connect(self.save_preferences)
         self.render()
+        if getattr(sys, "frozen", False):
+            QTimer.singleShot(0, self.startup_updates)
+
+    def save_preferences(self, *_):
+        settings = {
+            "expert": self.expert.isChecked(),
+            "remember": self.remember.isChecked(),
+            "timeout": self.timeout.value(),
+            "level": self.level.currentText(),
+            "symptom": self.symptom.currentText(),
+            "check_updates": self.check_updates.isChecked(),
+            "auto_updates": self.auto_updates.isChecked(),
+            "updates_consent": self.preferences.get("updates_consent", False),
+            "export_directory": self.preferences.get("export_directory", ""),
+        }
+        try:
+            self.history.save_settings(settings)
+            self.preferences = settings
+        except (OSError, ValueError, sqlite3.Error):
+            self.state.setText("Les préférences s'appliquent, mais leur enregistrement a échoué.")
+
+    @staticmethod
+    def find_in_view(view, text):
+        cursor = view.textCursor()
+        cursor.movePosition(cursor.MoveOperation.Start)
+        view.setTextCursor(cursor)
+        if text:
+            view.find(text)
 
     def page(self, title):
         page = QWidget()
@@ -242,14 +340,22 @@ class MainWindow(QMainWindow):
                 "Aucun diagnostic ne démarre à l'ouverture."
             )
         )
+        self.system_summary = label(
+            "Pour commencer, lancez l'analyse rapide : inventaire matériel, Windows, stockage et "
+            "protections. Les observations restent sur cet ordinateur.",
+            "muted",
+        )
+        box.addWidget(self.system_summary)
         controls = QHBoxLayout()
         self.level = QComboBox()
         self.level.addItems(["rapide", "approfondie", "ciblée"])
+        self.level.setCurrentText(self.preferences.get("level", "rapide"))
         self.level.setAccessibleName("Niveau d'analyse")
         self.symptom = QComboBox()
         self.symptom.addItems(list(SYMPTOMS))
+        self.symptom.setCurrentText(self.preferences.get("symptom", next(iter(SYMPTOMS))))
         self.symptom.setAccessibleName("Symptôme à investiguer")
-        self.symptom.setVisible(False)
+        self.symptom.setVisible(self.level.currentText() == "ciblée")
         self.level.currentTextChanged.connect(
             lambda text: self.symptom.setVisible(text == "ciblée")
         )
@@ -270,6 +376,11 @@ class MainWindow(QMainWindow):
         self.export_button.clicked.connect(self.export)
         actions.addWidget(self.export_button)
         box.addLayout(actions)
+        self.analysis_description = label("", "muted")
+        self.level.currentTextChanged.connect(self.update_analysis_description)
+        self.symptom.currentTextChanged.connect(self.update_analysis_description)
+        self.update_analysis_description()
+        box.addWidget(self.analysis_description)
         self.progress_bar = QProgressBar()
         self.progress_bar.setValue(0)
         box.addWidget(self.progress_bar)
@@ -281,12 +392,67 @@ class MainWindow(QMainWindow):
         self.results.header().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         self.results.setAccessibleName("Résultats des contrôles")
         self.results.currentItemChanged.connect(self.show_selected)
+        self.results.setRootIsDecorated(False)
+        self.results.setAlternatingRowColors(True)
         self.detail = browser()
         self.detail.setAccessibleName("Preuves et explications du contrôle sélectionné")
+        self.result_filter = QComboBox()
+        self.result_filter.addItems(
+            ["Tous les contrôles", "Alertes uniquement", "Contrôles non aboutis"]
+        )
+        self.result_filter.setAccessibleName("Filtrer les résultats")
+        self.result_filter.currentIndexChanged.connect(self.apply_result_filter)
+        box.addWidget(self.result_filter)
         split.addWidget(self.results)
         split.addWidget(self.detail)
         split.setSizes([260, 280])
         box.addWidget(split, 1)
+
+    def update_analysis_description(self, *_):
+        level = self.level.currentText()
+        count = len(select_collectors(level, self.symptom.currentText()))
+        descriptions = {
+            "rapide": "Inventaire et contrôles légers, sans test de charge.",
+            "approfondie": "Ajoute événements, services, pilotes et logiciels ; "
+            "plusieurs minutes possibles.",
+            "ciblée": f"Dossier d'investigation : {self.symptom.currentText()}.",
+        }
+        self.analysis_description.setText(f"{count} contrôles • {descriptions[level]}")
+
+    def apply_result_filter(self, *_):
+        selected = self.result_filter.currentIndex()
+        for index in range(self.results.topLevelItemCount()):
+            item = self.results.topLevelItem(index)
+            result = next(
+                (
+                    r
+                    for r in self.scan.results
+                    if r.collector_id == item.data(0, Qt.ItemDataRole.UserRole)
+                ),
+                None,
+            )
+            item.setHidden(
+                bool(
+                    result
+                    and (
+                        (selected == 1 and not result.findings)
+                        or (selected == 2 and result.status == Status.OK)
+                    )
+                )
+            )
+        current = self.results.currentItem()
+        if current is None or current.isHidden():
+            visible = next(
+                (
+                    self.results.topLevelItem(i)
+                    for i in range(self.results.topLevelItemCount())
+                    if not self.results.topLevelItem(i).isHidden()
+                ),
+                None,
+            )
+            self.results.setCurrentItem(visible)
+            if visible is None and self.scan:
+                self.detail.setPlainText("Aucun contrôle ne correspond au filtre sélectionné.")
 
     def build_repairs(self):
         _, box = self.page("Centre de réparation")
@@ -356,6 +522,7 @@ class MainWindow(QMainWindow):
         )
         self.history_list = QListWidget()
         self.history_list.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+        self.history_list.itemDoubleClicked.connect(lambda _item: self.load_scan())
         box.addWidget(self.history_list, 1)
         row = QHBoxLayout()
         for text, callback in (
@@ -373,9 +540,16 @@ class MainWindow(QMainWindow):
 
     def build_settings(self):
         _, box = self.page("Paramètres et mode expert")
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        content = QWidget()
+        scroll.setWidget(content)
+        box.addWidget(scroll, 1)
+        box = QVBoxLayout(content)
         self.expert = QCheckBox(
             "Mode expert : sources, commandes exactes et données brutes locales"
         )
+        self.expert.setChecked(self.preferences.get("expert", False))
         self.expert.toggled.connect(self.render)
         box.addWidget(self.expert)
         box.addWidget(
@@ -383,11 +557,38 @@ class MainWindow(QMainWindow):
         )
         self.timeout = QSpinBox()
         self.timeout.setRange(1, 120)
-        self.timeout.setValue(25)
+        self.timeout.setValue(self.preferences.get("timeout", 25))
         box.addWidget(self.timeout)
         self.remember = QCheckBox("Conserver les prochaines analyses dans l'historique local")
-        self.remember.setChecked(True)
+        self.remember.setChecked(self.preferences.get("remember", True))
         box.addWidget(self.remember)
+        self.check_updates = QCheckBox("Vérifier les mises à jour GitHub à chaque démarrage")
+        self.check_updates.setChecked(self.preferences.get("check_updates", False))
+        box.addWidget(self.check_updates)
+        self.auto_updates = QCheckBox(
+            "Installer puis redémarrer automatiquement après les analyses"
+        )
+        self.auto_updates.setChecked(self.preferences.get("auto_updates", False))
+        self.auto_updates.setEnabled(self.check_updates.isChecked())
+        self.auto_updates.toggled.connect(self.auto_update_option_changed)
+        box.addWidget(self.auto_updates)
+        self.check_updates.toggled.connect(self.update_options_changed)
+        self.update_button = QPushButton("Vérifier les mises à jour maintenant")
+        self.update_button.clicked.connect(lambda: self.start_update_check())
+        box.addWidget(self.update_button)
+        self.update_status = label(
+            "Les diagnostics fonctionnent hors ligne. Les mises à jour utilisent uniquement "
+            "les versions publiées dans Seiha1337/DeepTrace sur GitHub.",
+            "muted",
+        )
+        box.addWidget(self.update_status)
+        self.install_update_button = QPushButton("Installer la mise à jour et redémarrer")
+        self.install_update_button.setVisible(False)
+        self.install_update_button.clicked.connect(lambda: self.start_update_check(download=True))
+        box.addWidget(self.install_update_button)
+        notices = QPushButton("Composants embarqués et licences")
+        notices.clicked.connect(self.show_licenses)
+        box.addWidget(notices)
         box.addWidget(
             label(
                 f"Historique : {self.history.path}\n"
@@ -396,11 +597,134 @@ class MainWindow(QMainWindow):
                 "contiennent uniquement une synthèse filtrée. Le stockage local "
                 "n'est pas chiffré par "
                 "DeepTrace ; il dépend des protections de votre compte Windows. "
-                "Les réglages de cette "
-                "version s'appliquent à la session. Aucun droit administrateur n'est demandé."
+                "Les préférences sont mémorisées localement. "
+                "Aucun droit administrateur n'est demandé."
             )
         )
         box.addStretch()
+
+    def show_licenses(self):
+        root = Path(__file__).parent / "assets/licenses"
+        if not root.exists():
+            root = Path(__file__).resolve().parents[2] / "docs/licenses"
+        view = QMessageBox(self)
+        view.setWindowTitle("DeepTrace — composants embarqués")
+        view.setText(
+            "Python 3.13.17 (PSF), Qt / PySide6 Essentials 6.12.0 (LGPLv3), "
+            "shiboken6 et PyInstaller 6.22.3 (GPL avec exception de bootloader). "
+            "Sources et reconstruction : github.com/Seiha1337/DeepTrace, docs/THIRD_PARTY.md."
+        )
+        if root.exists():
+            view.setDetailedText(
+                "\n\n".join(
+                    f"=== {path.name} ===\n{path.read_text('utf-8')}"
+                    for path in sorted(root.glob("*.txt"))
+                )
+            )
+        view.exec()
+
+    def update_options_changed(self, enabled):
+        if not enabled:
+            self.auto_updates.setChecked(False)
+            if self.update_worker:
+                self.update_worker.cancel.set()
+        self.auto_updates.setEnabled(enabled)
+        self.preferences["updates_consent"] = True
+
+    def auto_update_option_changed(self, enabled):
+        if not enabled:
+            self.update_install_requested = False
+            self.pending_update = None
+            if self.update_worker:
+                self.update_worker.cancel.set()
+
+    def startup_updates(self):
+        if not self.preferences.get("updates_consent", False):
+            answer = QMessageBox.question(
+                self,
+                "Mises à jour de DeepTrace",
+                "Autoriser la vérification des versions sur GitHub à chaque démarrage, puis "
+                "leur téléchargement et le redémarrage automatique quand aucune analyse "
+                "n'est en cours ? Aucun diagnostic n'est envoyé. L'ancienne version est "
+                "conservée avant remplacement. Vous pouvez désactiver cette option "
+                "dans Paramètres.",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.Yes,
+            )
+            self.preferences["updates_consent"] = True
+            enabled = answer == QMessageBox.StandardButton.Yes
+            self.check_updates.setChecked(enabled)
+            self.auto_updates.setChecked(enabled)
+            self.save_preferences()
+        if self.check_updates.isChecked():
+            self.start_update_check()
+
+    def start_update_check(self, download=False):
+        if self.update_worker is not None:
+            return
+        self.update_install_requested = download or self.auto_updates.isChecked()
+        self.update_status.setText("Vérification des versions publiées sur GitHub…")
+        self.update_button.setEnabled(False)
+        self.install_update_button.setVisible(False)
+        self.update_worker = UpdateThread(
+            self.data_dir / "updates",
+            self.update_install_requested and getattr(sys, "frozen", False),
+            self,
+        )
+        self.update_worker.checked.connect(self.on_update_checked)
+        self.update_worker.ready.connect(self.on_update_ready)
+        self.update_worker.failed.connect(self.update_status.setText)
+        self.update_worker.download_progress.connect(self.on_update_download_progress)
+        self.update_worker.finished.connect(self.on_update_finished)
+        self.update_worker.start()
+
+    def on_update_checked(self, release):
+        if release is None:
+            self.update_status.setText(
+                f"Version {__version__} • aucune version plus récente publiée trouvée."
+            )
+            return
+        if self.update_install_requested and getattr(sys, "frozen", False):
+            self.update_status.setText(
+                f"DeepTrace {release.version} • téléchargement et vérification…"
+            )
+        else:
+            self.update_status.setText(f"DeepTrace {release.version} disponible sur GitHub.")
+            self.install_update_button.setVisible(getattr(sys, "frozen", False))
+
+    def on_update_download_progress(self, done, total):
+        self.update_status.setText(f"Téléchargement de la mise à jour : {done / max(total, 1):.0%}")
+
+    def on_update_ready(self, staged, release):
+        self.pending_update = (staged, release)
+        self.update_status.setText("Mise à jour vérifiée • redémarrage dès la fin des analyses.")
+
+    def on_update_finished(self):
+        self.update_worker.deleteLater()
+        self.update_worker = None
+        self.update_button.setEnabled(True)
+        if self.close_when_finished and self.worker is None:
+            self.close()
+        elif self.worker is None:
+            self.apply_pending_update()
+
+    def apply_pending_update(self):
+        if not self.pending_update or self.worker is not None or self.update_worker is not None:
+            return
+        from .updates import UpdateError, launch_installer
+
+        staged, release = self.pending_update
+        self.pending_update = None
+        if not self.update_install_requested:
+            return
+        try:
+            self.installer = launch_installer(staged, release, data_dir=self.data_dir)
+        except (UpdateError, OSError):
+            self.update_status.setText(
+                "Installation impossible ; la version actuelle reste utilisable."
+            )
+            return
+        self.close()
 
     def start_scan(self):
         if self.worker is not None:
@@ -424,14 +748,22 @@ class MainWindow(QMainWindow):
         self.start_button.setEnabled(False)
         self.export_button.setEnabled(False)
         self.level.setEnabled(False)
+        self.symptom.setEnabled(False)
+        self.remember_current_scan = self.remember.isChecked()
         self.cancel_button.setEnabled(True)
         self.state.setText("Analyse en cours • le premier contrôle démarre")
         self.worker = ScanThread(self.engine, level, self.scan.symptom, self.timeout.value(), self)
+        self.worker.stage_started.connect(self.on_stage_started)
         self.worker.progress.connect(self.on_progress)
         self.worker.completed.connect(self.on_completed)
         self.worker.failed.connect(self.on_failed)
         self.worker.finished.connect(self.on_finished)
         self.worker.start()
+
+    def on_stage_started(self, current, total, collector_id):
+        self.state.setText(
+            f"Contrôle {current}/{total} en cours • {BY_ID[collector_id].title} • lecture seule"
+        )
 
     def cancel_scan(self):
         if self.worker:
@@ -455,11 +787,11 @@ class MainWindow(QMainWindow):
             if any(r.status == Status.CANCELLED for r in scan.results)
             else "Analyse terminée • consulter les alertes et les limites de couverture"
         )
-        if self.remember.isChecked():
+        if self.remember_current_scan:
             try:
                 self.history.save(scan)
                 self.refresh_history()
-            except (OSError, sqlite3.Error):
+            except (OSError, ValueError, sqlite3.Error):
                 self.state.setText("Analyse terminée ; enregistrement de l'historique impossible.")
         self.render()
 
@@ -471,8 +803,13 @@ class MainWindow(QMainWindow):
         self.worker = None
         self.start_button.setEnabled(True)
         self.level.setEnabled(True)
+        self.symptom.setEnabled(True)
         self.cancel_button.setEnabled(False)
         self.export_button.setEnabled(bool(self.scan and self.scan.finished_at))
+        if self.close_when_finished:
+            self.close()
+        else:
+            self.apply_pending_update()
 
     def result_html(self, result):
         spec = BY_ID[result.collector_id]
@@ -553,6 +890,11 @@ class MainWindow(QMainWindow):
             )
             item.setData(0, Qt.ItemDataRole.UserRole, spec.id)
             self.results.addTopLevelItem(item)
+            if result.findings:
+                item.setForeground(3, QColor("#ffd384"))
+                item.setToolTip(3, "\n".join(f.title for f in result.findings))
+            if result.status not in (Status.OK, Status.CANCELLED):
+                item.setForeground(1, QColor("#ffd384"))
             if spec.id == selected_id:
                 self.results.setCurrentItem(item)
         if self.results.currentItem() is None and results:
@@ -564,12 +906,35 @@ class MainWindow(QMainWindow):
         )
         for metric, value in zip(self.metrics, counts, strict=True):
             metric.setText(str(value) if self.scan else "—")
+        self.apply_result_filter()
+        windows = next(
+            (
+                r.data[0]
+                for r in results
+                if r.collector_id == "windows" and r.status == Status.OK and r.data
+            ),
+            {},
+        )
+        hardware = next(
+            (r.data for r in results if r.collector_id == "hardware" and r.status == Status.OK), []
+        )
+        cpu = next((r.get("Name") for r in hardware if r.get("Kind") == "CPU"), None)
+        gpu = next((r.get("Name") for r in hardware if r.get("Kind") == "GPU"), None)
+        summary = [str(value) for value in (windows.get("Caption"), cpu, gpu) if value]
+        memory = windows.get("TotalVisibleMemorySize")
+        if isinstance(memory, (int, float)) and not isinstance(memory, bool):
+            summary.append(f"{memory / 1024**2:.1f} Gio de RAM")
+        if summary:
+            self.system_summary.setText(" • ".join(summary))
+        elif self.scan:
+            self.system_summary.setText("Résumé système indisponible dans les contrôles exécutés.")
         for domain, view in self.domain_views.items():
             relevant = [r for r in results if BY_ID[r.collector_id].domain == domain]
             view.setHtml(
                 "".join(self.result_html(r) for r in relevant)
                 or "<p>Aucun contrôle de ce domaine exécuté dans l'analyse sélectionnée.</p>"
             )
+            self.find_in_view(view, self.domain_searches[domain].text())
         if not results:
             self.detail.setPlainText(
                 "Lancez une analyse, puis sélectionnez un contrôle pour lire ses "
@@ -587,15 +952,33 @@ class MainWindow(QMainWindow):
     def export(self):
         if not self.scan or not self.scan.finished_at:
             return
-        filename, _ = QFileDialog.getSaveFileName(
+        filename, selected_filter = QFileDialog.getSaveFileName(
             self,
             "Exporter la synthèse filtrée",
-            "deeptrace-rapport.html",
+            str(
+                Path(self.preferences.get("export_directory") or Path.home())
+                / "deeptrace-rapport.html"
+            ),
             "Rapport HTML (*.html);;Données JSON (*.json)",
         )
         if filename:
             try:
-                export_report(self.scan, Path(filename))
+                target = Path(filename)
+                if not target.suffix:
+                    target = target.with_suffix(".json" if "JSON" in selected_filter else ".html")
+                    if (
+                        target.exists()
+                        and QMessageBox.question(
+                            self,
+                            "Remplacer le rapport",
+                            f"Le fichier {target.name} existe. Le remplacer ?",
+                        )
+                        != QMessageBox.StandardButton.Yes
+                    ):
+                        return
+                export_report(self.scan, target)
+                self.preferences["export_directory"] = str(target.parent)
+                self.save_preferences()
                 self.state.setText("Synthèse filtrée exportée • aucune donnée brute incluse")
             except (OSError, ValueError):
                 QMessageBox.warning(
@@ -603,8 +986,17 @@ class MainWindow(QMainWindow):
                 )
 
     def refresh_history(self):
+        try:
+            scans = self.history.list_scans()
+            simulations = self.history.simulations()
+        except (OSError, ValueError, sqlite3.Error):
+            self.history_detail.setPlainText(
+                "L'historique ne peut pas être lu. Les analyses en cours restent disponibles "
+                "dans cette fenêtre ; aucune donnée existante n'a été effacée."
+            )
+            return
         self.history_list.clear()
-        for scan_id, started, level in self.history.list_scans():
+        for scan_id, started, level in scans:
             item = QListWidgetItem(
                 f"{started[:19].replace('T', ' ')} UTC • {level} • {scan_id[:8]}"
             )
@@ -613,19 +1005,27 @@ class MainWindow(QMainWindow):
         self.history_detail.setPlainText(
             "\n\n".join(
                 f"{r['created_at']} • {r['operation']} • {r['state']}\n{r['state_after']}"
-                for r in self.history.simulations()
+                for r in simulations
             )
             or "Aucune simulation journalisée."
         )
 
     def load_scan(self):
         items = self.history_list.selectedItems()
-        if len(items) != 1 or self.worker:
+        if self.worker:
+            self.history_detail.setPlainText(
+                "Attendez la fin de l'analyse en cours avant de charger l'historique."
+            )
+            return
+        if len(items) != 1:
+            self.history_detail.setPlainText(
+                "Sélectionnez une analyse à charger, ou double-cliquez dessus."
+            )
             return
         try:
             self.scan = self.history.load(items[0].data(Qt.ItemDataRole.UserRole))
             self.render()
-            self.export_button.setEnabled(True)
+            self.export_button.setEnabled(bool(self.scan.finished_at))
             self.navigation.setCurrentRow(0)
             self.state.setText(
                 f"Analyse historique chargée • {self.scan.started_at} • mesures non actuelles"
@@ -638,11 +1038,18 @@ class MainWindow(QMainWindow):
         if len(items) != 2:
             self.history_detail.setPlainText("Sélectionnez exactement deux analyses (Ctrl + clic).")
             return
-        scans = sorted(
-            (self.history.load(i.data(Qt.ItemDataRole.UserRole)) for i in items),
-            key=lambda s: s.started_at,
-        )
-        changes = compare(*scans)
+        try:
+            scans = sorted(
+                (self.history.load(i.data(Qt.ItemDataRole.UserRole)) for i in items),
+                key=lambda s: s.started_at,
+            )
+            changes = compare(*scans)
+        except (KeyError, ValueError, OSError, sqlite3.Error):
+            self.history_detail.setPlainText(
+                "Comparaison impossible : l'une des analyses n'est plus disponible "
+                "ou est endommagée."
+            )
+            return
         self.history_detail.setPlainText(
             "\n".join(f"{BY_ID[c['collector']].title} : {c['change']}" for c in changes)
             or "Aucun changement dans les données collectées ; aucune garantie de santé globale."
@@ -660,8 +1067,13 @@ class MainWindow(QMainWindow):
             )
             == QMessageBox.StandardButton.Yes
         ):
-            for item in items:
-                self.history.delete(item.data(Qt.ItemDataRole.UserRole))
+            try:
+                for item in items:
+                    self.history.delete(item.data(Qt.ItemDataRole.UserRole))
+            except (OSError, sqlite3.Error):
+                QMessageBox.warning(
+                    self, "Historique", "Certaines analyses n'ont pas pu être supprimées."
+                )
             self.refresh_history()
 
     def simulate(self):
@@ -682,13 +1094,13 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Simulation indisponible", message)
 
     def closeEvent(self, event):
-        if self.worker is not None:
+        if self.worker is not None or self.update_worker is not None:
+            self.close_when_finished = True
             self.cancel_scan()
-            QMessageBox.information(
-                self,
-                "Analyse en cours",
-                "Annulation demandée. Attendez la fin du "
-                "contrôle courant avant de fermer l'application.",
+            if self.update_worker:
+                self.update_worker.cancel.set()
+            self.state.setText(
+                "Fermeture demandée • attente de la fin ou du délai du contrôle courant"
             )
             event.ignore()
         else:
