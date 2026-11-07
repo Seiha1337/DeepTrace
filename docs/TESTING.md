@@ -35,8 +35,19 @@ Ne pas interpréter un succès de collecte comme une validation de la santé du 
 - Un défaut de nettoyage des fenêtres de test causait une erreur à la sortie du processus ;
   la destruction explicite des widgets a corrigé le défaut observé.
 - Les totaux définitifs des tests, du lint, du build et de CI figurent dans `STATUS.md`.
+- Paquet installé hors mode éditable dans un environnement neuf avec seulement Essentials :
+  interface ouverte puis fermée normalement, import confirmé depuis `site-packages`.
+- La CI GitHub est configurée mais non exécutée : blocage de facturation/plafond du compte,
+  confirmé par l'annotation de l'exécution initiale. Les validations locales ne sont pas
+  présentées comme une réussite de CI distante.
 
 ## Non qualifié
+
+V0.1.1 : 79 tests sous Python stable 3.13.17 ; démarrage/fermeture du `.exe` vérifiés,
+remplacement et relance du binaire effectués sur des copies isolées sans intervention
+Windows. L'exécutable inclut explicitement le module Qt dynamique manquant et la
+construction refuse les DLL étrangères au runtime/projet/Windows. Les métriques de
+repos et le microbenchmark d'interface sont décrits dans `STATUS.md`.
 
 VM Windows propre, Windows avec fournisseur manquant, compte standard distinct,
 Windows géré par domaine, lecteurs d'écran, fort DPI et scénarios multimoniteurs.

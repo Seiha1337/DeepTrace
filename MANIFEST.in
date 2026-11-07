@@ -1,4 +1,8 @@
 include CHANGELOG.md CONTRIBUTING.md requirements-dev.lock
 recursive-include docs *.md *.png
+recursive-include docs/licenses *.txt
 recursive-include tools *.py
+recursive-include tools *.ps1
+include DeepTrace.spec requirements-windows-build.lock
+recursive-include src/deeptrace/assets *.ico
 recursive-include tests *.py

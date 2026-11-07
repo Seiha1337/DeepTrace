@@ -54,7 +54,12 @@ Schéma SQLite version 1 : tables `scans` (JSON de l'analyse) et `simulations` (
 L'interface affiche au plus 200 analyses et 100 simulations récentes ; pas de purge implicite.
 La comparaison ignore l'ordre des lignes, compare les données et les statuts, signale
 les différences de couverture et n'attribue aucune causalité.
-Les paramètres ne persistent pas encore entre sessions.
+Les préférences validées persistent dans la table `settings`, avec migration vers le
+schéma 2. Un schéma inconnu ou un historique illisible est signalé sans réinitialisation.
+
+V0.1.1 ajoute un module de mise à jour distinct du diagnostic. Il ne lit ni n'envoie
+les analyses. Seules les Releases officielles stables sont prises en compte après accord ;
+le helper de remplacement n'élève pas ses droits et ne change aucun paramètre Windows.
 
 Un futur helper privilégié nécessitera une ADR séparée : authentification IPC, catalogue
 fermé, validation des ressources, autorisations spécifiques, protection et vérification.

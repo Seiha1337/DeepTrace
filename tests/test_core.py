@@ -57,6 +57,8 @@ def test_payload_bom_and_empty_events():
     assert parse_payload('{"items":[{"FreeSpace":null}]}', "volumes") == [{"FreeSpace": None}]
     with pytest.raises(ValueError):
         parse_payload('{"items":[{"Size":NaN}]}', "volumes")
+    with pytest.raises(ValueError):
+        parse_payload('{"items":[{"Size":1e999}]}', "volumes")
 
 
 @pytest.mark.parametrize(

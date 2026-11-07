@@ -24,8 +24,10 @@ par un Job Object ; la limite de taille JSON n'est pas une limite d'allocation d
 
 Le stockage local dépend des permissions du dossier et de Windows ; pas de chiffrement
 applicatif. Ne pas choisir un dossier partagé pour `--data-dir`. DeepTrace n'ajuste pas
-automatiquement les ACL. Aucun trafic réseau n'est initié par le code applicatif ; les
-fournisseurs Windows peuvent conserver leur propre comportement de service.
+automatiquement les ACL. Après accord initial, le module de mise à jour interroge les
+Releases GitHub officielles en HTTPS, sans token ni diagnostic. GitHub reçoit l'IP et
+le User-Agent/version comme pour toute requête HTTP. Ce module est désactivable ; les
+fournisseurs Windows conservent leur propre comportement de service.
 
 Les exports excluent les données brutes, horodatages et identifiants d'analyse. Une synthèse
 révèle cependant des domaines contrôlés et des alertes : examiner aussi cette information
@@ -51,3 +53,18 @@ leur état réel doit figurer dans le bilan de livraison et non être supposé.
 Signaler une vulnérabilité par le canal privé du dépôt si disponible. Ne jamais poster
 de secrets, base SQLite, log privé ou dump dans une issue. Retirer/révoquer un secret
 exposé avant de discuter de son remplacement.
+
+## Mises à jour du programme
+
+Le dépôt cible et le nom `DeepTrace.exe` sont fixes. Les versions sont des triplets
+numériques stricts, les préversions ignorées, les téléchargements bornés en durée/taille.
+Les redirections sont restreintes aux hôtes HTTPS GitHub autorisés. L'empreinte SHA-256
+provient du digest GitHub ou du manifeste publié dans la même Release. Elle vérifie
+l'intégrité, pas une identité d'éditeur indépendante : la confiance repose sur HTTPS et
+les droits de publication du dépôt. Aucun certificat Authenticode n'est embarqué.
+
+Le helper non privilégié attend la sortie de l'application, recopie le téléchargement
+dans le dossier cible (y compris entre deux disques), vérifie l'empreinte, conserve
+l'ancien binaire puis remplace atomiquement l'exécutable. Il préserve le dossier de données
+et restaure l'ancien binaire si le remplacement ou la création du processus échoue.
+Un crash ultérieur de la nouvelle version n'est pas détecté automatiquement.

@@ -25,3 +25,5 @@ reports/
 backups/
 .coverage
 htmlcov/
+*.exe
+*.zip
