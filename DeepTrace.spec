@@ -1,5 +1,7 @@
 # Construction reproductible du seul exécutable portable Windows x64.
 from pathlib import Path
+import os
+import sys
 
 from PyInstaller.utils.win32.versioninfo import (
     FixedFileInfo, StringFileInfo, StringStruct, StringTable, VarFileInfo, VarStruct, VSVersionInfo,
@@ -30,11 +32,20 @@ a = Analysis(
            (str(root / "src/deeptrace/assets"), "deeptrace/assets"),
            (str(root / "docs/licenses"), "deeptrace/assets/licenses"),
            (str(root / "docs/THIRD_PARTY.md"), "deeptrace/assets/licenses")],
-    hiddenimports=[],
+    # Le hook amont teste les métadonnées du méta-paquet PySide6, absent avec Essentials seul.
+    # Les opérateurs d'enums Qt importent ce module dynamiquement.
+    hiddenimports=["PySide6.support.deprecated"],
     hookspath=[], hooksconfig={}, runtime_hooks=[],
     excludes=["tkinter", "pytest", "PySide6.QtWebEngineCore", "PySide6.QtWebEngineWidgets"],
     noarchive=False,
 )
+# Aucune bibliothèque native issue d'un logiciel tiers présent sur le poste de build.
+trusted_roots = [root.resolve(), Path(sys.prefix).resolve(), Path(sys.base_prefix).resolve(),
+                 Path(os.environ.get("SystemRoot", r"C:\Windows")).resolve()]
+for destination, source, kind in a.binaries:
+    resolved = Path(source).resolve()
+    if not any(resolved.is_relative_to(allowed) for allowed in trusted_roots):
+        raise RuntimeError(f"Bibliothèque hors des chemins de construction autorisés : {destination}")
 pyz = PYZ(a.pure)
 exe = EXE(
     pyz, a.scripts, a.binaries, a.datas, [],

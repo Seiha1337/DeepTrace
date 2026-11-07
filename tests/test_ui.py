@@ -217,3 +217,37 @@ def test_update_waits_for_analysis_and_preserves_data_dir(app, tmp_path, monkeyp
     assert window.pending_update is None
     window.deleteLater()
     QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+
+
+def test_hidden_heavy_domains_are_rendered_lazily_and_only_once(app, tmp_path, monkeypatch):
+    from PySide6.QtCore import Qt
+
+    window = MainWindow(tmp_path)
+    window.scan = Scan("approfondie", finished_at=utc_now())
+    window.scan.results = [
+        CollectorResult("windows", Status.OK, data=[{"Caption": "Windows test"}]),
+        CollectorResult(
+            "software", Status.OK, data=[{"DisplayName": f"App {i}"} for i in range(500)]
+        ),
+    ]
+    calls = []
+    original = window.result_html
+
+    def track(result):
+        calls.append(result.collector_id)
+        return original(result)
+
+    monkeypatch.setattr(window, "result_html", track)
+    window.render()
+    window.render()
+    assert calls == ["windows"]
+    item = window.navigation.findItems("Logiciels installés", Qt.MatchFlag.MatchExactly)[0]
+    window.navigation.setCurrentItem(item)
+    assert calls.count("software") == 1
+    window.render()
+    assert calls.count("software") == 1
+    window.expert.setChecked(True)
+    assert calls.count("software") == 2
+    window.close()
+    window.deleteLater()
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)

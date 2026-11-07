@@ -230,6 +230,9 @@ class MainWindow(QMainWindow):
         self.update_install_requested = False
         self.domain_views = {}
         self.domain_searches = {}
+        self._render_scan_id = None
+        self._domain_render_keys = {}
+        self._detail_key = None
         root = QWidget()
         self.setCentralWidget(root)
         layout = QHBoxLayout(root)
@@ -254,6 +257,9 @@ class MainWindow(QMainWindow):
             specs = [s for s in CATALOG if s.domain == domain]
             box.addWidget(label("\n".join(f"{s.title} : {s.purpose}" for s in specs), "muted"))
             view = browser()
+            view.setPlainText(
+                "Ouvrez cette rubrique après l'analyse pour consulter ses observations."
+            )
             search = QLineEdit()
             search.setPlaceholderText("Rechercher dans les observations…")
             search.setAccessibleName(f"Rechercher dans {domain}")
@@ -266,7 +272,7 @@ class MainWindow(QMainWindow):
         self.build_protection()
         self.build_history()
         self.build_settings()
-        self.navigation.currentRowChanged.connect(self.pages.setCurrentIndex)
+        self.navigation.currentRowChanged.connect(self.change_page)
         self.navigation.setCurrentRow(0)
         for signal in (
             self.expert.toggled,
@@ -875,8 +881,16 @@ class MainWindow(QMainWindow):
 
     def render(self, *_):
         results = self.scan.results if self.scan else []
+        scan_id = self.scan.id if self.scan else None
+        if scan_id != self._render_scan_id:
+            self._domain_render_keys.clear()
+            self._detail_key = None
+            self._render_scan_id = scan_id
+            for view in self.domain_views.values():
+                view.clear()
         selected = self.results.currentItem()
         selected_id = selected.data(0, Qt.ItemDataRole.UserRole) if selected else None
+        self.results.blockSignals(True)
         self.results.clear()
         for result in results:
             spec = BY_ID[result.collector_id]
@@ -907,6 +921,8 @@ class MainWindow(QMainWindow):
         for metric, value in zip(self.metrics, counts, strict=True):
             metric.setText(str(value) if self.scan else "—")
         self.apply_result_filter()
+        self.results.blockSignals(False)
+        self.show_selected(self.results.currentItem(), None)
         windows = next(
             (
                 r.data[0]
@@ -928,13 +944,7 @@ class MainWindow(QMainWindow):
             self.system_summary.setText(" • ".join(summary))
         elif self.scan:
             self.system_summary.setText("Résumé système indisponible dans les contrôles exécutés.")
-        for domain, view in self.domain_views.items():
-            relevant = [r for r in results if BY_ID[r.collector_id].domain == domain]
-            view.setHtml(
-                "".join(self.result_html(r) for r in relevant)
-                or "<p>Aucun contrôle de ce domaine exécuté dans l'analyse sélectionnée.</p>"
-            )
-            self.find_in_view(view, self.domain_searches[domain].text())
+        self.render_visible_domain()
         if not results:
             self.detail.setPlainText(
                 "Lancez une analyse, puis sélectionnez un contrôle pour lire ses "
@@ -946,8 +956,36 @@ class MainWindow(QMainWindow):
         if current and self.scan:
             key = current.data(0, Qt.ItemDataRole.UserRole)
             result = next((r for r in self.scan.results if r.collector_id == key), None)
-            if result:
+            signature = (self.scan.id, key, id(result), self.expert.isChecked())
+            if result and signature != self._detail_key:
                 self.detail.setHtml(self.result_html(result))
+                self._detail_key = signature
+
+    def change_page(self, index):
+        self.pages.setCurrentIndex(index)
+        self.render_visible_domain()
+
+    def render_visible_domain(self):
+        item = self.navigation.currentItem()
+        domain = item.text() if item else None
+        if domain not in self.domain_views:
+            return
+        results = self.scan.results if self.scan else []
+        relevant = [r for r in results if BY_ID[r.collector_id].domain == domain]
+        signature = (
+            self.scan.id if self.scan else None,
+            self.expert.isChecked(),
+            tuple(id(r) for r in relevant),
+        )
+        if self._domain_render_keys.get(domain) == signature:
+            return
+        view = self.domain_views[domain]
+        view.setHtml(
+            "".join(self.result_html(r) for r in relevant)
+            or "<p>Aucun contrôle de ce domaine exécuté dans l'analyse sélectionnée.</p>"
+        )
+        self._domain_render_keys[domain] = signature
+        self.find_in_view(view, self.domain_searches[domain].text())
 
     def export(self):
         if not self.scan or not self.scan.finished_at:

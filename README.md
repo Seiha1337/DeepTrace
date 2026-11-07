@@ -95,6 +95,11 @@ Sécurité, Incidents, Pilotes et Logiciels, ainsi que les centres de réparatio
 l'historique et les paramètres. Les analyses s'exécutent sur un thread de travail.
 L'annulation attend la fin ou le timeout du contrôle courant, puis marque les autres annulés.
 
+Les vues détaillées sont générées à leur ouverture et réutilisées tant que leurs données
+ne changent pas. Aucun service permanent ni sondage de capteurs au repos. Les diagnostics
+restent ponctuels, séquentiels et bornés ; la recherche de mise à jour intervient une seule
+fois par démarrage après accord. Les ressources mesurées figurent dans le bilan.
+
 ### Niveaux d'analyse
 
 - **Rapide** : 8 collecteurs légers, généralement quelques dizaines de secondes.

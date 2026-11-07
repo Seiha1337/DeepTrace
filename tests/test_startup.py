@@ -32,3 +32,16 @@ def test_cli_inaccessible_directory_is_reported(tmp_path, monkeypatch, capsys):
     assert main() == 1
     assert "inaccessible" in capsys.readouterr().err
     assert invalid.read_text("utf-8") == "keep"
+
+
+def test_startup_diagnostic_omits_exception_message_and_private_source_path(tmp_path, monkeypatch):
+    from deeptrace.bootstrap import record_startup_failure
+
+    monkeypatch.setattr("sys.argv", ["DeepTrace.exe", "--data-dir", str(tmp_path)])
+    try:
+        raise ModuleNotFoundError("private token secret", name="PySide6.support.deprecated")
+    except ModuleNotFoundError as error:
+        output = record_startup_failure(error)
+    text = output.read_text("utf-8")
+    assert "module=PySide6.support.deprecated" in text
+    assert "secret" not in text and str(tmp_path) not in text

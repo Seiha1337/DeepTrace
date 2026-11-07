@@ -43,6 +43,12 @@ python -m pip install -r requirements-windows-build.lock
 Le script produit aussi `SHA256SUMS.txt`. Un tag `vX.Y.Z` correspondant à la version
 du code déclenche les validations Windows/Linux, la construction et la Release GitHub.
 
+Le script isole `PATH`, utilise un cache local nettoyé et le `.spec` refuse les bibliothèques
+natives hors du runtime Python, du projet et de Windows. Cette isolation évite de collecter
+une DLL incompatible d'un autre logiciel installé sur le poste de construction.
+`PySide6.support.deprecated` est inclus explicitement car le hook amont teste les
+métadonnées du méta-paquet PySide6, absent quand Essentials seul est installé.
+
 `python tools/capture_ui.py` capture l'écran initial réel sans exécuter de diagnostic.
 `python tools/check_repository.py` vérifie les fichiers suivis avant publication.
 Les résultats de qualification restent dans `docs/TESTING.md` et le résumé `docs/STATUS.md`.
